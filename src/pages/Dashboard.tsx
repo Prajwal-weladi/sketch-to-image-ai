@@ -13,6 +13,7 @@ const Dashboard = () => {
   const navigate = useNavigate();
   const [user, setUser] = useState<any>(null);
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
+  const [stats, setStats] = useState({ cases: 0, evidence: 0, suspects: 0 });
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -68,7 +69,7 @@ const Dashboard = () => {
               <FolderOpen className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">0</div>
+              <div className="text-2xl font-bold">{stats.cases}</div>
               <p className="text-xs text-muted-foreground">Cases in progress</p>
             </CardContent>
           </Card>
@@ -79,7 +80,7 @@ const Dashboard = () => {
               <Image className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">0</div>
+              <div className="text-2xl font-bold">{stats.evidence}</div>
               <p className="text-xs text-muted-foreground">Images analyzed</p>
             </CardContent>
           </Card>
@@ -90,7 +91,7 @@ const Dashboard = () => {
               <Users className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">0</div>
+              <div className="text-2xl font-bold">{stats.suspects}</div>
               <p className="text-xs text-muted-foreground">Profiles created</p>
             </CardContent>
           </Card>
@@ -118,7 +119,7 @@ const Dashboard = () => {
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                <CasesList />
+                <CasesList onStatsChange={setStats} />
               </CardContent>
             </Card>
           </TabsContent>
