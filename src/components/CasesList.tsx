@@ -3,7 +3,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useNavigate } from "react-router-dom";
-import { FileText, Calendar, MapPin, Trash2, Filter } from "lucide-react";
+import { FileText, Calendar, MapPin, Trash2, Filter, MoreVertical, CheckCircle, Clock, Archive, XCircle } from "lucide-react";
 import { toast } from "sonner";
 import {
   Select,
@@ -21,8 +21,17 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-  AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
+} from "@/components/ui/dropdown-menu";
 
 interface Case {
   id: string;
@@ -37,6 +46,7 @@ interface Case {
 }
 
 type StatusFilter = "all" | "active" | "pending" | "solved" | "closed";
+type CaseStatus = "active" | "pending" | "solved" | "closed";
 
 interface CasesListProps {
   onStatsChange?: (stats: { cases: number; evidence: number; suspects: number }) => void;
@@ -47,6 +57,8 @@ export const CasesList = ({ onStatsChange }: CasesListProps) => {
   const [filteredCases, setFilteredCases] = useState<Case[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [caseToDelete, setCaseToDelete] = useState<string | null>(null);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -95,19 +107,38 @@ export const CasesList = ({ onStatsChange }: CasesListProps) => {
     }
   };
 
-  const handleDeleteCase = async (e: React.MouseEvent, caseId: string) => {
-    e.stopPropagation();
+  const handleStatusChange = async (caseId: string, newStatus: CaseStatus) => {
+    try {
+      const { error } = await supabase
+        .from("cases")
+        .update({ status: newStatus })
+        .eq("id", caseId);
+
+      if (error) throw error;
+      toast.success(`Case status updated to ${newStatus}`);
+      fetchCases();
+    } catch (error: any) {
+      toast.error("Failed to update status");
+      console.error(error);
+    }
+  };
+
+  const handleDeleteCase = async () => {
+    if (!caseToDelete) return;
+    
     try {
       // Delete related data first
-      await supabase.from("case_notes").delete().eq("case_id", caseId);
-      await supabase.from("evidence").delete().eq("case_id", caseId);
-      await supabase.from("suspects").delete().eq("case_id", caseId);
-      await supabase.from("detections").delete().eq("case_id", caseId);
+      await supabase.from("case_notes").delete().eq("case_id", caseToDelete);
+      await supabase.from("evidence").delete().eq("case_id", caseToDelete);
+      await supabase.from("suspects").delete().eq("case_id", caseToDelete);
+      await supabase.from("detections").delete().eq("case_id", caseToDelete);
       
-      const { error } = await supabase.from("cases").delete().eq("id", caseId);
+      const { error } = await supabase.from("cases").delete().eq("id", caseToDelete);
       if (error) throw error;
       
       toast.success("Case deleted successfully");
+      setDeleteDialogOpen(false);
+      setCaseToDelete(null);
       fetchCases();
     } catch (error: any) {
       toast.error("Failed to delete case");
@@ -123,6 +154,16 @@ export const CasesList = ({ onStatsChange }: CasesListProps) => {
       closed: "bg-gray-500/10 text-gray-500 border-gray-500/20",
     };
     return colors[status as keyof typeof colors] || colors.pending;
+  };
+
+  const getStatusIcon = (status: CaseStatus) => {
+    const icons = {
+      active: <CheckCircle className="w-4 h-4 text-green-500" />,
+      pending: <Clock className="w-4 h-4 text-yellow-500" />,
+      solved: <Archive className="w-4 h-4 text-blue-500" />,
+      closed: <XCircle className="w-4 h-4 text-gray-500" />,
+    };
+    return icons[status];
   };
 
   if (isLoading) {
@@ -179,37 +220,49 @@ export const CasesList = ({ onStatsChange }: CasesListProps) => {
                 <p className="text-sm text-muted-foreground">Case #{case_.case_number}</p>
               </div>
               
-              {case_.status === "closed" && (
-                <AlertDialog>
-                  <AlertDialogTrigger asChild>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="text-destructive hover:text-destructive hover:bg-destructive/10"
-                      onClick={(e) => e.stopPropagation()}
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </Button>
-                  </AlertDialogTrigger>
-                  <AlertDialogContent>
-                    <AlertDialogHeader>
-                      <AlertDialogTitle>Delete Case</AlertDialogTitle>
-                      <AlertDialogDescription>
-                        Are you sure you want to delete this case? This will also delete all related evidence, suspects, and notes. This action cannot be undone.
-                      </AlertDialogDescription>
-                    </AlertDialogHeader>
-                    <AlertDialogFooter>
-                      <AlertDialogCancel onClick={(e) => e.stopPropagation()}>Cancel</AlertDialogCancel>
-                      <AlertDialogAction
-                        className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                        onClick={(e) => handleDeleteCase(e, case_.id)}
-                      >
-                        Delete
-                      </AlertDialogAction>
-                    </AlertDialogFooter>
-                  </AlertDialogContent>
-                </AlertDialog>
-              )}
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-8 w-8"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <MoreVertical className="w-4 h-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" onClick={(e) => e.stopPropagation()}>
+                  <DropdownMenuSub>
+                    <DropdownMenuSubTrigger>
+                      <span>Change Status</span>
+                    </DropdownMenuSubTrigger>
+                    <DropdownMenuSubContent>
+                      {(["active", "pending", "solved", "closed"] as CaseStatus[]).map((status) => (
+                        <DropdownMenuItem
+                          key={status}
+                          onClick={() => handleStatusChange(case_.id, status)}
+                          className="flex items-center gap-2"
+                        >
+                          {getStatusIcon(status)}
+                          <span className="capitalize">{status}</span>
+                          {case_.status === status && <span className="ml-auto text-xs">✓</span>}
+                        </DropdownMenuItem>
+                      ))}
+                    </DropdownMenuSubContent>
+                  </DropdownMenuSub>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    className="text-destructive focus:text-destructive"
+                    onClick={() => {
+                      setCaseToDelete(case_.id);
+                      setDeleteDialogOpen(true);
+                    }}
+                  >
+                    <Trash2 className="w-4 h-4 mr-2" />
+                    Delete Case
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
             </div>
 
             {case_.description && (
@@ -238,6 +291,26 @@ export const CasesList = ({ onStatsChange }: CasesListProps) => {
           </div>
         ))
       )}
+
+      <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Case</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete this case? This will also delete all related evidence, suspects, and notes. This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={handleDeleteCase}
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 };
