@@ -5,9 +5,10 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
-import { LogOut, Plus, FolderOpen, Image, Users, Shield, Bell } from "lucide-react";
+import { LogOut, Plus, FolderOpen, Image, Users, Shield, Bell, PenTool } from "lucide-react";
 import { CasesList } from "@/components/CasesList";
 import { CreateCaseDialog } from "@/components/CreateCaseDialog";
+import { SketchDrawingTool } from "@/components/SketchDrawingTool";
 
 const Dashboard = () => {
   const navigate = useNavigate();
@@ -101,6 +102,10 @@ const Dashboard = () => {
           <div className="flex items-center justify-between">
             <TabsList>
               <TabsTrigger value="cases">Cases</TabsTrigger>
+              <TabsTrigger value="sketch" className="gap-1">
+                <PenTool className="w-4 h-4" />
+                Sketch
+              </TabsTrigger>
               <TabsTrigger value="analysis">AI Analysis</TabsTrigger>
               <TabsTrigger value="evidence">Evidence</TabsTrigger>
             </TabsList>
@@ -122,6 +127,10 @@ const Dashboard = () => {
                 <CasesList onStatsChange={setStats} />
               </CardContent>
             </Card>
+          </TabsContent>
+
+          <TabsContent value="sketch" className="space-y-4">
+            <SketchDrawingTool />
           </TabsContent>
 
           <TabsContent value="analysis" className="space-y-4">
