@@ -50,7 +50,7 @@ const Dashboard = () => {
         <div className="container mx-auto px-4 py-4 flex items-center justify-between">
           <div>
             <h1 className="text-2xl font-display font-bold bg-gradient-primary bg-clip-text text-transparent">
-              Forensic Investigation System
+              SketchMatch Forensic Investigation & Matching System
             </h1>
             <p className="text-sm text-muted-foreground">{user.email}</p>
           </div>
