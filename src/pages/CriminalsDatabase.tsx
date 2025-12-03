@@ -4,9 +4,10 @@ import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Plus, AlertTriangle, Shield, Skull, ArrowLeft } from "lucide-react";
+import { Plus, AlertTriangle, Shield, Skull, ArrowLeft, FileSpreadsheet } from "lucide-react";
 import { toast } from "sonner";
 import { AddCriminalDialog } from "@/components/AddCriminalDialog";
+import { BulkUploadCriminals } from "@/components/BulkUploadCriminals";
 
 interface Criminal {
   id: string;
@@ -24,6 +25,7 @@ export default function CriminalsDatabase() {
   const [criminals, setCriminals] = useState<Criminal[]>([]);
   const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [bulkUploadOpen, setBulkUploadOpen] = useState(false);
 
   useEffect(() => {
     fetchCriminals();
@@ -92,10 +94,16 @@ export default function CriminalsDatabase() {
             Manage wanted criminals and suspects for detection
           </p>
         </div>
-        <Button onClick={() => setDialogOpen(true)}>
-          <Plus className="mr-2 h-4 w-4" />
-          Add Criminal
-        </Button>
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={() => setBulkUploadOpen(true)}>
+            <FileSpreadsheet className="mr-2 h-4 w-4" />
+            Bulk Upload
+          </Button>
+          <Button onClick={() => setDialogOpen(true)}>
+            <Plus className="mr-2 h-4 w-4" />
+            Add Criminal
+          </Button>
+        </div>
       </div>
 
       {loading ? (
@@ -155,6 +163,12 @@ export default function CriminalsDatabase() {
       <AddCriminalDialog
         open={dialogOpen}
         onOpenChange={setDialogOpen}
+        onSuccess={fetchCriminals}
+      />
+
+      <BulkUploadCriminals
+        open={bulkUploadOpen}
+        onOpenChange={setBulkUploadOpen}
         onSuccess={fetchCriminals}
       />
     </div>
