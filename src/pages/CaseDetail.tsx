@@ -6,17 +6,21 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
-import { ArrowLeft, Image, Users, FileText, Upload, Video } from "lucide-react";
+import { ArrowLeft, Image, Users, FileText, Video } from "lucide-react";
 import { EvidenceUpload } from "@/components/EvidenceUpload";
 import { EvidenceList } from "@/components/EvidenceList";
 import { VideoDetection } from "@/components/VideoDetection";
 import { RealtimeDetection } from "@/components/RealtimeDetection";
+import { SuspectsList } from "@/components/SuspectsList";
+import { AddSuspectDialog } from "@/components/AddSuspectDialog";
+import { CaseNotes } from "@/components/CaseNotes";
 
 const CaseDetail = () => {
   const { id } = useParams();
   const navigate = useNavigate();
   const [caseData, setCaseData] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [suspectRefresh, setSuspectRefresh] = useState(0);
 
   useEffect(() => {
     if (id) {
@@ -158,30 +162,19 @@ const CaseDetail = () => {
             <EvidenceList caseId={id!} />
           </TabsContent>
 
-          <TabsContent value="suspects">
-            <Card>
-              <CardHeader>
-                <CardTitle>Suspects</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p className="text-center text-muted-foreground py-8">
-                  No suspects added yet
-                </p>
-              </CardContent>
-            </Card>
+          <TabsContent value="suspects" className="space-y-4">
+            <div className="flex justify-between items-center">
+              <h2 className="text-xl font-semibold">Case Suspects</h2>
+              <AddSuspectDialog 
+                caseId={id!} 
+                onSuspectAdded={() => setSuspectRefresh(prev => prev + 1)} 
+              />
+            </div>
+            <SuspectsList caseId={id!} refreshTrigger={suspectRefresh} />
           </TabsContent>
 
           <TabsContent value="notes">
-            <Card>
-              <CardHeader>
-                <CardTitle>Case Notes</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p className="text-center text-muted-foreground py-8">
-                  No notes added yet
-                </p>
-              </CardContent>
-            </Card>
+            <CaseNotes caseId={id!} />
           </TabsContent>
 
           <TabsContent value="video">
