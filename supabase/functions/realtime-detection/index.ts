@@ -14,15 +14,15 @@ serve(async (req) => {
   try {
     const { frameImage, caseId, location } = await req.json();
     
-    if (!frameImage || !caseId) {
-      throw new Error('frameImage and caseId are required');
+    if (!frameImage) {
+      throw new Error('frameImage is required');
     }
 
-    console.log('Processing realtime frame for case:', caseId);
+    console.log('Processing realtime frame', caseId ? `for case: ${caseId}` : '(standalone CCTV)');
 
-    const OPENAI_API_KEY = Deno.env.get('OPENAI_API_KEY');
-    if (!OPENAI_API_KEY) {
-      throw new Error('OPENAI_API_KEY is not configured');
+    const LOVABLE_API_KEY = Deno.env.get('LOVABLE_API_KEY');
+    if (!LOVABLE_API_KEY) {
+      throw new Error('LOVABLE_API_KEY is not configured');
     }
 
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
@@ -40,27 +40,45 @@ serve(async (req) => {
       throw criminalsError;
     }
 
-    // Get evidence images from this case
-    const { data: evidence, error: evidenceError } = await supabase
-      .from('evidence')
-      .select('*')
-      .eq('case_id', caseId);
+    // Get evidence images from this case (only if caseId provided)
+    let evidence: any[] = [];
+    if (caseId) {
+      const { data: evidenceData, error: evidenceError } = await supabase
+        .from('evidence')
+        .select('*')
+        .eq('case_id', caseId);
 
-    if (evidenceError) {
-      console.error('Error fetching evidence:', evidenceError);
+      if (evidenceError) {
+        console.error('Error fetching evidence:', evidenceError);
+      } else {
+        evidence = evidenceData || [];
+      }
     }
 
-    console.log(`Checking frame against ${criminals?.length || 0} active criminals and ${evidence?.length || 0} evidence images`);
+    console.log(`Checking frame against ${criminals?.length || 0} active criminals and ${evidence.length} evidence images`);
 
-    // Detect faces in the frame
-    const faceDetectionResponse = await fetch('https://api.openai.com/v1/chat/completions', {
+    if (!criminals || criminals.length === 0) {
+      console.log('No active criminals in database to match against');
+      return new Response(
+        JSON.stringify({ 
+          success: true,
+          detections: [],
+          facesDetected: 0,
+          message: 'No active criminals in database'
+        }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    // Detect faces in the frame using Lovable AI
+    const faceDetectionResponse = await fetch('https://api.lovable.dev/v1/chat/completions', {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${OPENAI_API_KEY}`,
+        'Authorization': `Bearer ${LOVABLE_API_KEY}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'gpt-4-vision',
+        model: 'google/gemini-2.5-flash',
         messages: [
           {
             role: 'user',
@@ -68,18 +86,20 @@ serve(async (req) => {
               {
                 type: 'text',
                 text: `Detect and describe all faces in this image. For each face provide:
-1. Detailed description (age, gender, ethnicity, distinguishing features)
-2. Position in frame
+1. Detailed description (estimated age, gender, ethnicity if visible, distinguishing features)
+2. Position in frame (left, center, right)
 
-Respond in JSON:
+Respond ONLY in valid JSON:
 {
   "faces": [
     {
-      "description": "detailed description",
+      "description": "detailed description here",
       "position": "location in frame"
     }
   ]
-}`
+}
+
+If no faces detected: {"faces": []}`
               },
               {
                 type: 'image_url',
@@ -97,15 +117,8 @@ Respond in JSON:
       
       if (faceDetectionResponse.status === 429) {
         return new Response(
-          JSON.stringify({ error: 'Rate limit exceeded. Please try again in a moment.' }),
+          JSON.stringify({ error: 'Rate limit exceeded. Please try again in a moment.', detections: [], facesDetected: 0 }),
           { status: 429, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-        );
-      }
-      
-      if (faceDetectionResponse.status === 402) {
-        return new Response(
-          JSON.stringify({ error: 'Payment required. Please add credits to your workspace.' }),
-          { status: 402, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
       }
       
@@ -114,6 +127,7 @@ Respond in JSON:
 
     const faceData = await faceDetectionResponse.json();
     const faceAnalysisText = faceData.choices?.[0]?.message?.content;
+    console.log('Face detection response:', faceAnalysisText?.substring(0, 200));
 
     let faceAnalysis;
     try {
@@ -124,42 +138,41 @@ Respond in JSON:
         faceAnalysis = { faces: [] };
       }
     } catch {
+      console.log('Could not parse face detection response');
       faceAnalysis = { faces: [] };
     }
 
-    const detections = [];
+    const detections: any[] = [];
+    console.log(`Detected ${faceAnalysis.faces?.length || 0} faces in frame`);
 
     // For each detected face, compare with criminals
     for (const face of faceAnalysis.faces || []) {
       for (const criminal of criminals || []) {
-        // Compare face with criminal using AI
-        const matchResponse = await fetch('https://api.openai.com/v1/chat/completions', {
+        if (!criminal.photo_url) continue;
+
+        console.log(`Comparing face with criminal: ${criminal.name}`);
+
+        const matchResponse = await fetch('https://api.lovable.dev/v1/chat/completions', {
           method: 'POST',
           headers: {
-            'Authorization': `Bearer ${OPENAI_API_KEY}`,
+            'Authorization': `Bearer ${LOVABLE_API_KEY}`,
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({
-            model: 'gpt-4-vision',
+            model: 'google/gemini-2.5-flash',
             messages: [
               {
                 role: 'user',
                 content: [
                   {
                     type: 'text',
-                    text: `Compare this detected person with this criminal profile. Provide match probability (0-100):
+                    text: `Compare person in first image with criminal photo in second image.
 
 Detected: ${face.description}
+Criminal: ${criminal.name}, ${criminal.age_range || 'unknown age'}, ${criminal.gender || 'unknown gender'}
+Marks: ${criminal.distinguishing_marks || 'none'}
 
-Criminal: ${criminal.name}
-- Age: ${criminal.age_range}
-- Gender: ${criminal.gender}
-- Ethnicity: ${criminal.ethnicity}
-- Height: ${criminal.height}
-- Build: ${criminal.build}
-- Marks: ${criminal.distinguishing_marks}
-
-Respond with only a number 0-100.`
+Provide match probability 0-100. Respond with ONLY a number.`
                   },
                   {
                     type: 'image_url',
@@ -180,132 +193,43 @@ Respond with only a number 0-100.`
           const matchText = matchData.choices?.[0]?.message?.content;
           const matchScore = parseInt(matchText?.match(/\d+/)?.[0] || '0');
 
-          // If high confidence match, record it
-          if (matchScore > 70) {
+          console.log(`Match score for ${criminal.name}: ${matchScore}%`);
+
+          if (matchScore > 60) {
             console.log(`🚨 ALERT: ${criminal.name} detected (${matchScore}% match)`);
             
-            // Save snapshot to storage
-            const timestamp = new Date().getTime();
-            const { data: uploadData, error: uploadError } = await supabase.storage
-              .from('detection-snapshots')
-              .upload(`${caseId}/${timestamp}.jpg`, 
-                Uint8Array.from(atob(frameImage.split(',')[1]), c => c.charCodeAt(0)),
-                { contentType: 'image/jpeg' }
-              );
-
-            let snapshotUrl = frameImage;
-            if (!uploadError && uploadData) {
-              const { data: urlData } = supabase.storage
-                .from('detection-snapshots')
-                .getPublicUrl(uploadData.path);
-              snapshotUrl = urlData.publicUrl;
-            }
-
             // Create detection record
             const { error: detectionError } = await supabase
               .from('detections')
               .insert({
                 criminal_id: criminal.id,
-                case_id: caseId,
+                case_id: caseId || null,
                 detection_type: 'realtime',
                 confidence_score: matchScore,
-                snapshot_url: snapshotUrl,
-                location: location,
+                snapshot_url: frameImage.substring(0, 100) + '...',
+                location: location || 'CCTV Detection',
                 alerted: true,
               });
 
             if (detectionError) {
               console.error('Error creating detection:', detectionError);
-            } else {
-              detections.push({
-                criminal: criminal,
-                confidence: matchScore,
-                snapshotUrl: snapshotUrl,
-                timestamp: new Date().toISOString()
-              });
-            }
-          }
-        }
-      }
-    }
-
-    // Also check against case evidence images
-    for (const face of faceAnalysis.faces || []) {
-      for (const evidenceItem of evidence || []) {
-        // Only check image evidence
-        if (!evidenceItem.image_url || !evidenceItem.image_url.startsWith('data:image')) continue;
-
-        // Use AI to compare the detected face with evidence image
-        const matchResponse = await fetch('https://api.openai.com/v1/chat/completions', {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${OPENAI_API_KEY}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            model: 'gpt-4-vision',
-            messages: [
-              {
-                role: 'user',
-                content: [
-                  {
-                    type: 'text',
-                    text: 'Compare these two faces and provide a match probability (0-100). Respond with just a number.'
-                  },
-                  {
-                    type: 'image_url',
-                    image_url: { url: frameImage }
-                  },
-                  {
-                    type: 'image_url',
-                    image_url: { url: evidenceItem.image_url }
-                  }
-                ]
-              }
-            ]
-          }),
-        });
-
-        if (matchResponse.ok) {
-          const matchData = await matchResponse.json();
-          const matchText = matchData.choices?.[0]?.message?.content;
-          const matchScore = parseInt(matchText?.match(/\d+/)?.[0] || '0');
-
-          // If high confidence match
-          if (matchScore > 75) {
-            console.log(`🚨 Evidence match detected (${matchScore}% match)`);
-            
-            // Save snapshot to storage
-            const timestamp = new Date().getTime();
-            const { data: uploadData, error: uploadError } = await supabase.storage
-              .from('detection-snapshots')
-              .upload(`${caseId}/${timestamp}_evidence.jpg`, 
-                Uint8Array.from(atob(frameImage.split(',')[1]), c => c.charCodeAt(0)),
-                { contentType: 'image/jpeg' }
-              );
-
-            let snapshotUrl = frameImage;
-            if (!uploadError && uploadData) {
-              const { data: urlData } = supabase.storage
-                .from('detection-snapshots')
-                .getPublicUrl(uploadData.path);
-              snapshotUrl = urlData.publicUrl;
             }
 
             detections.push({
-              type: 'evidence',
-              evidence: evidenceItem,
-              confidence: matchScore,
-              snapshotUrl: snapshotUrl,
+              type: 'criminal',
+              criminalName: criminal.name,
+              criminalId: criminal.id,
+              threatLevel: criminal.threat_level,
+              confidence: matchScore / 100,
               timestamp: new Date().toISOString(),
-              message: `Matches evidence from case`
+              location: location || 'CCTV Detection'
             });
           }
         }
       }
     }
 
-    console.log(`Realtime detection completed. Found ${detections.length} matches.`);
+    console.log(`Detection completed. Found ${detections.length} matches.`);
 
     return new Response(
       JSON.stringify({ 
@@ -317,10 +241,9 @@ Respond with only a number 0-100.`
     );
 
   } catch (error) {
-    console.error('Error in realtime-detection function:', error);
-    const errorMessage = error instanceof Error ? error.message : 'An unexpected error occurred';
+    console.error('Error in realtime-detection:', error);
     return new Response(
-      JSON.stringify({ error: errorMessage }),
+      JSON.stringify({ error: error instanceof Error ? error.message : 'An unexpected error occurred' }),
       { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   }

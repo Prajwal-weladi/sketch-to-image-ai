@@ -6,11 +6,13 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { toast } from "sonner";
-import { Camera, StopCircle, MapPin, AlertTriangle, User } from "lucide-react";
+import { Camera, StopCircle, MapPin, AlertTriangle, User, Loader2 } from "lucide-react";
 
 interface Detection {
   type: "criminal" | "evidence";
   name?: string;
+  criminalName?: string;
+  threatLevel?: string;
   confidence: number;
   timestamp: string;
   location?: string;
@@ -18,8 +20,10 @@ interface Detection {
 
 export const RealtimeCCTVTool = () => {
   const [isStreaming, setIsStreaming] = useState(false);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [location, setLocation] = useState("");
   const [detections, setDetections] = useState<Detection[]>([]);
+  const [lastAnalysisTime, setLastAnalysisTime] = useState<string>("");
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
@@ -43,9 +47,13 @@ export const RealtimeCCTVTool = () => {
       }
       setIsStreaming(true);
 
-      // Start periodic frame analysis
-      intervalRef.current = setInterval(captureAndAnalyze, 5000);
-      toast.success("CCTV stream started");
+      // Start periodic frame analysis every 8 seconds to avoid rate limiting
+      intervalRef.current = setInterval(captureAndAnalyze, 8000);
+      
+      // Run initial analysis after a short delay
+      setTimeout(captureAndAnalyze, 1000);
+      
+      toast.success("CCTV stream started - analyzing every 8 seconds");
     } catch (error: any) {
       toast.error("Failed to access camera: " + error.message);
       console.error(error);
@@ -65,21 +73,30 @@ export const RealtimeCCTVTool = () => {
       intervalRef.current = null;
     }
     setIsStreaming(false);
+    setIsAnalyzing(false);
   };
 
   const captureAndAnalyze = async () => {
     if (!videoRef.current || !streamRef.current) return;
 
+    setIsAnalyzing(true);
+    setLastAnalysisTime(new Date().toLocaleTimeString());
+
     const canvas = document.createElement("canvas");
-    canvas.width = videoRef.current.videoWidth;
-    canvas.height = videoRef.current.videoHeight;
+    canvas.width = videoRef.current.videoWidth || 640;
+    canvas.height = videoRef.current.videoHeight || 480;
     const ctx = canvas.getContext("2d");
-    if (!ctx) return;
+    if (!ctx) {
+      setIsAnalyzing(false);
+      return;
+    }
 
     ctx.drawImage(videoRef.current, 0, 0);
-    const frameImage = canvas.toDataURL("image/jpeg", 0.8);
+    const frameImage = canvas.toDataURL("image/jpeg", 0.7);
 
     try {
+      console.log("Sending frame for analysis...");
+      
       const { data, error } = await supabase.functions.invoke("realtime-detection", {
         body: {
           frameImage,
@@ -87,24 +104,50 @@ export const RealtimeCCTVTool = () => {
         },
       });
 
-      if (error) throw error;
+      if (error) {
+        console.error("Detection error:", error);
+        if (error.message?.includes('429') || error.message?.includes('rate')) {
+          toast.warning("Rate limited - will retry on next interval");
+        }
+        setIsAnalyzing(false);
+        return;
+      }
+
+      console.log("Detection response:", data);
+
+      if (data?.facesDetected > 0) {
+        toast.info(`Detected ${data.facesDetected} face(s) in frame`);
+      }
 
       if (data?.detections && data.detections.length > 0) {
         const newDetections: Detection[] = data.detections.map((d: any) => ({
           type: d.type,
           name: d.criminalName || d.evidenceType,
+          criminalName: d.criminalName,
+          threatLevel: d.threatLevel,
           confidence: d.confidence,
           timestamp: new Date().toISOString(),
           location: location || "AI Analysis Tool",
         }));
 
-        setDetections((prev) => [...newDetections, ...prev].slice(0, 20));
+        setDetections((prev) => [...newDetections, ...prev].slice(0, 50));
 
-        // Show alert for criminal detections
+        // Show prominent alerts for criminal detections
         newDetections.forEach((detection) => {
           if (detection.type === "criminal") {
             toast.error(
-              `⚠️ CRIMINAL DETECTED: ${detection.name} (${Math.round(detection.confidence * 100)}% confidence)`,
+              `⚠️ CRIMINAL DETECTED: ${detection.criminalName} (${Math.round(detection.confidence * 100)}% confidence)`,
+              { duration: 15000 }
+            );
+            
+            // Play alert sound if available
+            try {
+              const audio = new Audio('/alert.mp3');
+              audio.play().catch(() => {});
+            } catch {}
+          } else {
+            toast.warning(
+              `Evidence match found (${Math.round(detection.confidence * 100)}% confidence)`,
               { duration: 10000 }
             );
           }
@@ -112,6 +155,21 @@ export const RealtimeCCTVTool = () => {
       }
     } catch (error) {
       console.error("Analysis error:", error);
+    } finally {
+      setIsAnalyzing(false);
+    }
+  };
+
+  const getThreatBadge = (level?: string) => {
+    switch (level) {
+      case 'critical':
+        return <Badge variant="destructive" className="animate-pulse">CRITICAL</Badge>;
+      case 'high':
+        return <Badge variant="destructive">HIGH</Badge>;
+      case 'medium':
+        return <Badge className="bg-orange-500">MEDIUM</Badge>;
+      default:
+        return <Badge variant="secondary">LOW</Badge>;
     }
   };
 
@@ -152,6 +210,21 @@ export const RealtimeCCTVTool = () => {
               </Button>
             )}
           </div>
+
+          {isStreaming && (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              {isAnalyzing ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  <span>Analyzing frame...</span>
+                </>
+              ) : (
+                <>
+                  <span>Last analysis: {lastAnalysisTime || 'Pending...'}</span>
+                </>
+              )}
+            </div>
+          )}
         </CardContent>
       </Card>
 
@@ -159,11 +232,19 @@ export const RealtimeCCTVTool = () => {
         <CardHeader>
           <CardTitle className="flex items-center justify-between">
             Live Feed
-            {isStreaming && (
-              <Badge variant="destructive" className="animate-pulse">
-                LIVE
-              </Badge>
-            )}
+            <div className="flex items-center gap-2">
+              {isAnalyzing && (
+                <Badge variant="outline" className="animate-pulse">
+                  <Loader2 className="w-3 h-3 mr-1 animate-spin" />
+                  ANALYZING
+                </Badge>
+              )}
+              {isStreaming && (
+                <Badge variant="destructive" className="animate-pulse">
+                  LIVE
+                </Badge>
+              )}
+            </div>
           </CardTitle>
         </CardHeader>
         <CardContent>
@@ -188,41 +269,49 @@ export const RealtimeCCTVTool = () => {
       </Card>
 
       {detections.length > 0 && (
-        <Card>
+        <Card className="border-destructive">
           <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <AlertTriangle className="w-5 h-5 text-destructive" />
-              Detection Alerts
+            <CardTitle className="flex items-center gap-2 text-destructive">
+              <AlertTriangle className="w-5 h-5" />
+              Detection Alerts ({detections.length})
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="space-y-3 max-h-80 overflow-y-auto">
+            <div className="space-y-3 max-h-96 overflow-y-auto">
               {detections.map((detection, index) => (
                 <div
-                  key={index}
-                  className={`p-3 rounded-lg border ${
+                  key={`${detection.timestamp}-${index}`}
+                  className={`p-4 rounded-lg border ${
                     detection.type === "criminal"
-                      ? "bg-destructive/10 border-destructive/20"
-                      : "bg-yellow-500/10 border-yellow-500/20"
+                      ? "bg-destructive/10 border-destructive/30"
+                      : "bg-yellow-500/10 border-yellow-500/30"
                   }`}
                 >
-                  <div className="flex items-center gap-2 mb-1">
-                    {detection.type === "criminal" ? (
-                      <User className="w-4 h-4 text-destructive" />
-                    ) : (
-                      <AlertTriangle className="w-4 h-4 text-yellow-500" />
-                    )}
-                    <span className="font-semibold">
-                      {detection.type === "criminal" ? "Criminal Match" : "Evidence Match"}
-                    </span>
-                    <Badge variant="outline">
-                      {Math.round(detection.confidence * 100)}%
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-2">
+                      {detection.type === "criminal" ? (
+                        <User className="w-5 h-5 text-destructive" />
+                      ) : (
+                        <AlertTriangle className="w-5 h-5 text-yellow-500" />
+                      )}
+                      <span className="font-bold text-lg">
+                        {detection.type === "criminal" ? "CRIMINAL MATCH" : "Evidence Match"}
+                      </span>
+                    </div>
+                    {detection.threatLevel && getThreatBadge(detection.threatLevel)}
+                  </div>
+                  
+                  {detection.criminalName && (
+                    <p className="text-lg font-semibold mb-1">{detection.criminalName}</p>
+                  )}
+                  
+                  <div className="flex items-center gap-2 mb-2">
+                    <Badge variant="outline" className="text-base">
+                      {Math.round(detection.confidence * 100)}% confidence
                     </Badge>
                   </div>
-                  {detection.name && (
-                    <p className="text-sm">{detection.name}</p>
-                  )}
-                  <div className="flex items-center gap-2 mt-2 text-xs text-muted-foreground">
+                  
+                  <div className="flex items-center gap-4 text-sm text-muted-foreground">
                     <span>{new Date(detection.timestamp).toLocaleTimeString()}</span>
                     {detection.location && (
                       <>
