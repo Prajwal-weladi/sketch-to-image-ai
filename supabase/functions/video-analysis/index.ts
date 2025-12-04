@@ -20,9 +20,9 @@ serve(async (req) => {
 
     console.log('Starting video analysis for case:', caseId);
 
-    const LOVABLE_API_KEY = Deno.env.get('LOVABLE_API_KEY');
-    if (!LOVABLE_API_KEY) {
-      throw new Error('LOVABLE_API_KEY is not configured');
+    const OPENAI_API_KEY = Deno.env.get('OPENAI_API_KEY');
+    if (!OPENAI_API_KEY) {
+      throw new Error('OPENAI_API_KEY is not configured');
     }
 
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
@@ -100,14 +100,14 @@ serve(async (req) => {
     // 3. Compare each detected face against criminal database
     // For this demo, we'll simulate frame analysis
 
-    const response = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${LOVABLE_API_KEY}`,
+        'Authorization': `Bearer ${OPENAI_API_KEY}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'google/gemini-2.5-flash',
+        model: 'gpt-4-vision',
         messages: [
           {
             role: 'user',
@@ -193,14 +193,14 @@ Provide your analysis in JSON format:
       // Check against criminals database
       for (const criminal of criminals || []) {
         // Use AI to compare the face description with criminal profile
-        const matchResponse = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
+        const matchResponse = await fetch('https://api.openai.com/v1/chat/completions', {
           method: 'POST',
           headers: {
-            'Authorization': `Bearer ${LOVABLE_API_KEY}`,
+            'Authorization': `Bearer ${OPENAI_API_KEY}`,
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({
-            model: 'google/gemini-2.5-flash',
+            model: 'gpt-4-vision',
             messages: [
               {
                 role: 'user',
@@ -267,14 +267,14 @@ Respond with just a number 0-100 representing match probability.`
         if (!evidenceItem.image_url || !evidenceItem.image_url.startsWith('data:image')) continue;
 
         // Use AI to compare the detected face with evidence image
-        const matchResponse = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
+        const matchResponse = await fetch('https://api.openai.com/v1/chat/completions', {
           method: 'POST',
           headers: {
-            'Authorization': `Bearer ${LOVABLE_API_KEY}`,
+            'Authorization': `Bearer ${OPENAI_API_KEY}`,
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({
-            model: 'google/gemini-2.5-flash',
+            model: 'gpt-4-vision',
             messages: [
               {
                 role: 'user',

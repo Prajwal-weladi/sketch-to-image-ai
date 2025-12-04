@@ -19,23 +19,23 @@ serve(async (req) => {
 
     console.log('Processing age progression to:', targetAge);
 
-    const LOVABLE_API_KEY = Deno.env.get('LOVABLE_API_KEY');
-    if (!LOVABLE_API_KEY) {
-      throw new Error('LOVABLE_API_KEY is not configured');
+    const OPENAI_API_KEY = Deno.env.get('OPENAI_API_KEY');
+    if (!OPENAI_API_KEY) {
+      throw new Error('OPENAI_API_KEY is not configured');
     }
 
     const agePrompt = targetAge 
       ? `Transform this face to show how it would look at age ${targetAge}. Add realistic age-appropriate features including wrinkles, age spots, gray hair, and other natural aging effects. Maintain the person's core facial structure and features while showing natural aging progression.`
       : 'Transform this face to show realistic age progression by 20 years. Add wrinkles, age spots, gray hair, and other natural aging effects while maintaining recognizable features.';
 
-    const response = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${LOVABLE_API_KEY}`,
+        'Authorization': `Bearer ${OPENAI_API_KEY}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'google/gemini-3-pro-image-preview',
+        model: 'gpt-4-vision',
         messages: [
           {
             role: 'user',

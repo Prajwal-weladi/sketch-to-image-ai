@@ -19,9 +19,9 @@ serve(async (req) => {
 
     console.log('Enhancing features:', enhancement);
 
-    const LOVABLE_API_KEY = Deno.env.get('LOVABLE_API_KEY');
-    if (!LOVABLE_API_KEY) {
-      throw new Error('LOVABLE_API_KEY is not configured');
+    const OPENAI_API_KEY = Deno.env.get('OPENAI_API_KEY');
+    if (!OPENAI_API_KEY) {
+      throw new Error('OPENAI_API_KEY is not configured');
     }
 
     const enhancementPrompts: Record<string, string> = {
@@ -35,14 +35,14 @@ serve(async (req) => {
 
     const prompt = enhancementPrompts[enhancement] || 'Enhance and improve the overall quality of this facial image. Sharpen details, improve clarity, and make all features more distinct.';
 
-    const response = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${LOVABLE_API_KEY}`,
+        'Authorization': `Bearer ${OPENAI_API_KEY}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'google/gemini-3-pro-image-preview',
+        model: 'gpt-4-vision',
         messages: [
           {
             role: 'user',
